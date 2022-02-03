@@ -146,7 +146,7 @@ app.post("/", async (req, res) => {
       })
     }
     const members = await ghostClient.members.browse({
-      filter: `email:${email}`,
+      filter: `email:'${email}'`,
     })
     if (
       [
