@@ -1,0 +1,7 @@
+Hey {{to.firstName}},
+
+{{message}}
+
+Have a wonderful day,
+
+{{from.firstName}}

@@ -5,7 +5,9 @@ const express = require("express")
 const cors = require("cors")
 const got = require("got")
 const ghost = require("@tryghost/admin-api")
-const { writeFile } = require("fs-extra")
+const { readFile, writeFile } = require("fs-extra")
+const nodemailer = require("nodemailer")
+const handlebars = require("handlebars")
 const whilst = require("p-whilst")
 const { join } = require("path")
 const { inspect } = require("util")
@@ -14,6 +16,7 @@ const { createHmac } = require("crypto")
 dotenv.config()
 
 const statsFile = join(__dirname, "stats.json")
+const templateFile = join(__dirname, "template.hbs")
 
 const prettyError = (error) => {
   if (error instanceof got.HTTPError) {
@@ -66,6 +69,17 @@ const ghostClient = new ghost({
   url: process.env.GHOST_API_URL,
   key: process.env.GHOST_ADMIN_API_KEY,
   version: "v4",
+})
+
+const nodemailerTransport = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT),
+  requireTLS: true,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USERNAME,
+    pass: process.env.SMTP_PASSWORD,
+  },
 })
 
 const app = express()
@@ -129,13 +143,18 @@ app.post("/", async (req, res) => {
     }
     const subscriptionId = req.body.data.object.id
     const subscriptionResponse = await stripeClient.get(
-      `v1/subscriptions/${subscriptionId}?expand[]=customer`,
-      {
-        responseType: "json",
-      }
+      `v1/subscriptions/${subscriptionId}?expand[]=customer`
     )
-    const email = subscriptionResponse.body.customer.email
-    const name = subscriptionResponse.body.customer.name
+    const customerId = subscriptionResponse.body.customer.id
+    const customerEmail = subscriptionResponse.body.customer.email
+    const customerName = subscriptionResponse.body.customer.name
+    const cancelAtPeriodEnd = subscriptionResponse.body.cancel_at_period_end
+    const currentPeriodStart = new Date(
+      subscriptionResponse.body.current_period_start * 1000
+    ).toLocaleDateString("en-ca")
+    const currentPeriodEnd = new Date(
+      subscriptionResponse.body.current_period_end * 1000
+    ).toLocaleDateString("en-ca")
     const productId = subscriptionResponse.body.plan.product
     const status = subscriptionResponse.body.status
     if (productId !== process.env.STRIPE_PRODUCT_ID) {
@@ -146,27 +165,77 @@ app.post("/", async (req, res) => {
       })
     }
     const members = await ghostClient.members.browse({
-      filter: `email:'${email}'`,
+      filter: `email:'${customerEmail}'`,
     })
     if (
       [
         "customer.subscription.created",
         "customer.subscription.updated",
       ].includes(type) === true &&
-      status === "active" &&
-      members.length === 0
+      status === "active"
     ) {
-      const member = await ghostClient.members.add(
-        {
-          email: email,
-          name: name,
-        },
-        { send_email: true }
-      )
-      if (process.env.DEBUG === "true") {
-        console.info("added", member)
+      if (members.length === 0) {
+        const labels = [
+          {
+            name: "Stripe",
+          },
+        ]
+        if (cancelAtPeriodEnd === true) {
+          labels.push({
+            name: "Pending deletion",
+          })
+        }
+        const note = {
+          stripe: {
+            customer: customerId,
+            subscription: subscriptionId,
+            pendingDeletion: cancelAtPeriodEnd,
+            starts: currentPeriodStart,
+            ends: currentPeriodEnd,
+          },
+        }
+        const member = await ghostClient.members.add(
+          {
+            name: customerName,
+            email: customerEmail,
+            labels: labels,
+            note: JSON.stringify(note, null, 2),
+          },
+          { send_email: true }
+        )
+        if (process.env.DEBUG === "true") {
+          console.info("Member added", member)
+        }
+        return res.sendStatus(201)
+      } else if (members.length === 1) {
+        const member = members[0]
+        const labels = [
+          {
+            name: "Stripe",
+          },
+        ]
+        if (cancelAtPeriodEnd === true) {
+          labels.push({
+            name: "Pending deletion",
+          })
+        }
+        const note = JSON.parse(member.note)
+        note.stripe.pendingDeletion = cancelAtPeriodEnd
+        note.stripe.starts = currentPeriodStart
+        note.stripe.ends = currentPeriodEnd
+        const updatedMember = await ghostClient.members.edit({
+          id: member.id,
+          labels: labels,
+          note: JSON.stringify(note, null, 2),
+        })
+        if (process.env.DEBUG === "true") {
+          console.info("Member updated", updatedMember)
+        }
+        return res.sendStatus(200)
+      } else {
+        // This should never happen but tracking edge case anyways
+        throw new Error("Invalid member length")
       }
-      return res.sendStatus(201)
     } else if (
       type === "customer.subscription.deleted" &&
       members.length === 1
@@ -176,11 +245,108 @@ app.post("/", async (req, res) => {
         id: member.id,
       })
       if (process.env.DEBUG === "true") {
-        console.info("deleted", member)
+        console.info("Member deleted", member)
       }
       return res.sendStatus(201)
     }
     return res.sendStatus(200)
+  } catch (error) {
+    prettyError(error)
+    return res.sendStatus(500)
+  }
+})
+
+app.post("/stripe-customer-update", async (req, res) => {
+  try {
+    const member = await ghostClient.members.read({
+      id: req.body.member.current.id,
+    })
+    if (!member) {
+      const error = new Error("Could not find member")
+      console.error(error, req.query)
+      return res.status(404).send({
+        error: error.message,
+      })
+    }
+    const note = JSON.parse(member.note)
+    if (note.stripe && note.stripe.customer) {
+      const customer = note.stripe.customer
+      const customerResponse = await stripeClient.post(
+        `v1/customers/${customer}`,
+        {
+          form: {
+            email: member.email,
+            name: member.name,
+          },
+        }
+      )
+      if (process.env.DEBUG === "true") {
+        console.info("Stripe customer updated", customerResponse.body)
+      }
+    }
+    return res.sendStatus(200)
+  } catch (error) {
+    prettyError(error)
+    return res.sendStatus(500)
+  }
+})
+
+app.get("/portal", async (req, res) => {
+  try {
+    if (!req.query.email || req.query.email === "") {
+      const error = new Error("Missing email")
+      console.error(error, req.query)
+      return res.status(400).send({
+        error: error.message,
+      })
+    }
+    const email = req.query.email
+    const members = await ghostClient.members.browse({
+      filter: `email:'${email}'`,
+    })
+    if (members.length !== 1) {
+      const error = new Error("Membership required")
+      console.error(error, req.query)
+      return res.status(401).send({
+        error: error.message,
+      })
+    }
+    const member = members[0]
+    const note = JSON.parse(member.note)
+    const portalSessionResponse = await stripeClient.post(
+      "v1/billing_portal/sessions",
+      {
+        form: {
+          customer: note.stripe.customer,
+        },
+      }
+    )
+    const from = {
+      name: process.env.FROM_NAME,
+      email: process.env.FROM_EMAIL,
+    }
+    const to = {
+      name: member.name,
+      email: member.email,
+    }
+    const data = {
+      from: {
+        firstName: from.name.split(" ")[0],
+        email: from.email,
+      },
+      to: {
+        firstName: to.name.split(" ")[0],
+        email: to.email,
+      },
+      message: `Go to following link to manage your membership.\n\n${portalSessionResponse.body.url}`,
+    }
+    const info = await nodemailerTransport.sendMail({
+      from: `${from.name} <${from.email}>`,
+      to: `${to.name} <${to.email}>`,
+      subject: "Manage membership",
+      text: template(data),
+    })
+    return res.redirect(process.env.GHOST_MEMBERSHIP_PAGE)
   } catch (error) {
     prettyError(error)
     return res.sendStatus(500)
@@ -224,9 +390,7 @@ const syncStats = async () => {
       if (process.env.DEBUG === "true") {
         console.info(`Fetching ${process.env.STRIPE_API_PREFIX_URL}/${url}`)
       }
-      const subscriptionsResponse = await stripeClient.get(url, {
-        responseType: "json",
-      })
+      const subscriptionsResponse = await stripeClient.get(url)
       subscriptions = subscriptions.concat(subscriptionsResponse.body.data)
       more = subscriptionsResponse.body.has_more
       if (subscriptions.length > 0) {
@@ -251,9 +415,17 @@ const syncStats = async () => {
   setTimeout(syncStats, 60000)
 }
 
+var template
+
+const loadTemplate = async () => {
+  const data = await readFile(templateFile, "utf8")
+  template = handlebars.compile(data)
+}
+
 const run = async () => {
   try {
     await syncStats()
+    await loadTemplate()
     const server = await app.listen(process.env.PORT)
     const serverAddress = server.address()
     if (process.env.DEBUG === "true" && typeof serverAddress === "object") {

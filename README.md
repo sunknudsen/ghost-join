@@ -14,13 +14,23 @@ Implementing ghost-join it not straightforward… this repo was made public so o
 
 ## Implementation overview
 
-### Step 1: setup Stripe account
+### Step 1: create and configure [Stripe](https://stripe.com/) account
+
+Go to [https://dashboard.stripe.com/settings/user](https://dashboard.stripe.com/settings/user) and configure user.
+
+Go to [https://dashboard.stripe.com/settings/emails](https://dashboard.stripe.com/settings/emails) and configure emails.
+
+Go to [https://dashboard.stripe.com/settings/branding](https://dashboard.stripe.com/settings/branding) and configure branding.
+
+Go to [https://dashboard.stripe.com/settings/billing/automatic](https://dashboard.stripe.com/settings/billing/automatic) and configure automatic emails.
 
 ### Step 2: create restricted Stripe API key
 
 Go to [https://dashboard.stripe.com/developers](https://dashboard.stripe.com/developers) and create restricted API key with following permissions.
 
-Customers 👉 Read
+Customers 👉 Write
+
+Customer portal 👉 Write
 
 Subscriptions 👉 Read
 
@@ -36,13 +46,15 @@ Go to [https://dashboard.stripe.com/products](https://dashboard.stripe.com/produ
 
 ### Step 5: set “Subscription access” to “Only people I invite” on `/ghost/#/settings/members`
 
-### Step 6: add ghost-join custom integration on `/ghost/#/settings/integrations`
+### Step 6: add ghost-join custom integration on `/ghost/#/settings/integrations` and create webhook
+
+Create webhook named “Stripe customer update” that listens to “Member updated event and triggers `/stripe-customer-update`.
 
 ### Step 7: configure and run ghost-join
 
 > Heads-up: set `STATS_TOKEN` in `.env` to disable public stats.
 
-Clone [ghost-join](https://github.com/sunknudsen/ghost-join), create `.env`, run `node index.js` and point subdomain to service (complexity of step has been abstracted).
+Clone [ghost-join](https://github.com/sunknudsen/ghost-join), create `.env` and `template.hbs`, run `node index.js` and point subdomain to service (complexity of step has been abstracted).
 
 ### Step 8: generate custom Ghost Portal
 
@@ -61,20 +73,15 @@ Add following to `config.production.json`.
 
 ### Step 10: create join and contact pages on `/ghost/#/pages`
 
-### Step 11 (optional): enable `useTinfoil` mode (see [docs](https://ghost.org/docs/config/#privacy))
+### Step 11 (optional): configure privacy features (see [docs](https://ghost.org/docs/config/#privacy))
 
 Add following to `config.production.json`.
 
 ```
 "privacy": {
-  "useTinfoil": true
+  "useUpdateCheck": false,
+  "useGravatar": false
 }
 ```
 
 ### Step 12: run `ghost restart`
-
-## Other privacy issues
-
-Some themes (such as [Edition](https://edition.ghost.io/)) load assets from third parties (such as Google Fonts).
-
-One can clone and [patch](https://github.com/sunknudsen/custom-ghost-edition-theme) theme to remove third-party dependencies.
