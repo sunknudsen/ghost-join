@@ -1,6 +1,6 @@
 {
   "name": "ghost-join",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Monetize content on Ghost without compromising on user privacy.",
   "main": "index.js",
   "scripts": {
