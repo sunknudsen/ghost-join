@@ -2,7 +2,7 @@
 
 const dotenv = require("dotenv")
 const express = require("express")
-const cors = require("cors")
+const bodyParser = require("body-parser")
 const got = require("got")
 const ghost = require("@tryghost/admin-api")
 const { readFile, writeFile } = require("fs-extra")
@@ -102,8 +102,6 @@ const app = express()
 app.enable("trust proxy")
 app.disable("x-powered-by")
 
-app.use(cors())
-
 app.use(
   express.json({
     verify: (req, res, buf) => {
@@ -111,6 +109,10 @@ app.use(
     },
   })
 )
+
+app.use(bodyParser.json())
+
+app.use(bodyParser.urlencoded({ extended: true }))
 
 app.post("/", async (req, res) => {
   try {
@@ -306,22 +308,22 @@ app.post("/stripe-customer-update", async (req, res) => {
   }
 })
 
-app.get("/portal", async (req, res) => {
+app.post("/portal", async (req, res) => {
   try {
-    if (!req.query.email || req.query.email === "") {
+    if (!req.body.email || req.body.email === "") {
       const error = new Error("Missing email")
-      console.error(error, req.query)
+      console.error(error, req.body)
       return res.status(400).send({
         error: error.message,
       })
     }
-    const email = req.query.email
+    const email = req.body.email
     const members = await ghostClient.members.browse({
       filter: `email:'${email}'`,
     })
     if (members.length !== 1) {
       const error = new Error("Membership required")
-      console.error(error, req.query)
+      console.error(error, req.body)
       return res.status(401).send({
         error: error.message,
       })
