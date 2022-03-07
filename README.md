@@ -24,6 +24,8 @@ Go to [https://dashboard.stripe.com/settings/branding](https://dashboard.stripe.
 
 Go to [https://dashboard.stripe.com/settings/billing/automatic](https://dashboard.stripe.com/settings/billing/automatic) and configure automatic emails.
 
+Go to [https://dashboard.stripe.com/settings/billing/portal](https://dashboard.stripe.com/settings/billing/portal) and configure portal (set “Default redirect link”).
+
 ### Step 2: create restricted Stripe API key
 
 Go to [https://dashboard.stripe.com/developers](https://dashboard.stripe.com/developers) and create restricted API key with following permissions.
@@ -58,7 +60,7 @@ Clone [ghost-join](https://github.com/sunknudsen/ghost-join), create `.env` and 
 
 ### Step 8: generate custom Ghost Portal
 
-Clone [custom-ghost-portal](https://github.com/sunknudsen/custom-ghost-portal), run `npm install`, edit `REACT_APP_JOIN_URL` and `REACT_APP_CONTACT_URL` variables in `.env` and run `npm run build`.
+Clone [custom-ghost-portal](https://github.com/sunknudsen/custom-ghost-portal), run `npm install`, edit `REACT_APP_JOIN_URL` and `REACT_APP_GHOST_JOIN_PORTAL_URL` variables in `.env` and run `npm run build`.
 
 ### Step 9: add files from `custom-ghost-portal/umd` directory to `assets/built` directory of theme and configure portal
 
