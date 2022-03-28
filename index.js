@@ -119,7 +119,7 @@ app.post("/", async (req, res) => {
     const stripeSignature = req.headers["stripe-signature"]
     if (!stripeSignature) {
       const error = new Error("Missing Stripe webhook signature header")
-      console.error(error)
+      console.error(error, req.headers)
       return res.status(401).send({
         error: error.message,
       })
@@ -373,7 +373,7 @@ app.post("/portal", async (req, res) => {
 app.get("/stats", async (req, res) => {
   if (process.env.STATS_TOKEN && req.query.token !== process.env.STATS_TOKEN) {
     const error = new Error("Wrong token")
-    console.error(error, req.query.token)
+    console.error(error, req.query)
     return res.status(401).send({
       error: error.message,
     })
